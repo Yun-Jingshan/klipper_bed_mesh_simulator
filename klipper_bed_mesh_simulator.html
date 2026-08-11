@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Klipper Bed Mesh 插值模拟器</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --panel-bg: #16213e;
+    --border: #0f3460;
+    --accent: #e94560;
+    --accent2: #533483;
+    --text: #eee;
+    --text2: #aaa;
+    --input-bg: #0a0a1a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+  }
+  .sidebar {
+    width: 400px;
+    min-width: 400px;
+    background: var(--panel-bg);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 16px;
+    gap: 10px;
+  }
+  .sidebar h1 {
+    font-size: 1.15em;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .sidebar h1 span { color: var(--text2); font-weight: 400; font-size: 0.7em; display: block; margin-top: 2px; }
+  .section {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .section h3 {
+    font-size: 0.78em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text2);
+    margin-bottom: 8px;
+    cursor: pointer;
+    user-select: none;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .section h3 .arrow { transition: transform 0.2s; font-size: 0.7em; }
+  .section.collapsed .section-content { display: none; }
+  .section.collapsed h3 .arrow { transform: rotate(-90deg); }
+  .param-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    gap: 8px;
+  }
+  .param-row label {
+    font-size: 0.83em;
+    color: var(--text2);
+    white-space: nowrap;
+    min-width: 100px;
+  }
+  .param-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    height: 4px;
+  }
+  .param-row .val {
+    min-width: 32px;
+    text-align: right;
+    font-weight: 600;
+    font-size: 0.83em;
+    color: var(--accent);
+  }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.82em;
+    font-weight: 600;
+    transition: opacity 0.2s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn-sm { padding: 4px 10px; font-size: 0.72em; }
+  .btn-secondary { background: var(--accent2); }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+  }
+  .btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+  .stat-item {
+    background: rgba(255,255,255,0.04);
+    border-radius: 6px;
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .stat-item .label { font-size: 0.65em; color: var(--text2); text-transform: uppercase; }
+  .stat-item .value { font-size: 0.95em; font-weight: 700; color: var(--text); margin-top: 2px; }
+  .stat-item .unit { font-size: 0.65em; color: var(--text2); }
+  .err-positive { color: #f44336; }
+  .err-negative { color: #4caf50; }
+  .err-zero { color: var(--text2); }
+  .err-table-wrap { max-height: 280px; overflow: auto; margin-top: 8px; }
+  .err-table { border-collapse: collapse; font-size: 0.65em; width: 100%; }
+  .err-table th, .err-table td { padding: 3px 6px; text-align: center; border: 1px solid var(--border); white-space: nowrap; }
+  .err-table th { background: rgba(255,255,255,0.05); color: var(--text2); position: sticky; top: 0; }
+  .err-table td { font-family: 'Consolas', monospace; }
+  .cross-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 12px;
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8em;
+    flex-wrap: wrap;
+  }
+  .cross-controls label { color: var(--text2); white-space: nowrap; }
+  .cross-controls input[type="number"] {
+    width: 80px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    text-align: center;
+  }
+  .cross-controls input[type="number"]:focus { border-color: var(--accent); outline: none; }
+  .cross-controls .cross-type-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text2);
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.15s;
+  }
+  .cross-controls .cross-type-btn.active {
+    border-color: var(--accent);
+    background: rgba(233,69,96,0.15);
+    color: #fff;
+    font-weight: 600;
+  }
+  .cross-controls .cross-hint {
+    color: #666;
+    font-size: 0.85em;
+  }
+
+  /* 算法选择按钮组 */
+  .algo-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .algo-btn {
+    display: block;
+    width: 100%;
+    padding: 8px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text2);
+    cursor: pointer;
+    font-size: 0.82em;
+    text-align: left;
+    transition: all 0.15s;
+    line-height: 1.35;
+  }
+  .algo-btn:hover { border-color: var(--accent); color: var(--text); background: rgba(233,69,96,0.06); }
+  .algo-btn.active {
+    border-color: var(--accent);
+    background: rgba(233,69,96,0.12);
+    color: #fff;
+    font-weight: 600;
+  }
+  .algo-btn .algo-name { font-weight: 700; }
+  .algo-btn .algo-desc { font-size: 0.78em; color: var(--text2); margin-top: 1px; }
+  .algo-btn.active .algo-desc { color: #ccc; }
+
+  #meshInput {
+    width: 100%; height: 120px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px;
+    border-radius: 6px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.66em;
+    resize: vertical;
+    line-height: 1.35;
+  }
+  #meshInput:focus { border-color: var(--accent); outline: none; }
+  .input-hint {
+    font-size: 0.64em; color: #666; margin-top: 4px; line-height: 1.3;
+  }
+  .parse-status {
+    font-size: 0.7em; margin-top: 4px; padding: 4px 8px; border-radius: 4px; display: none;
+  }
+  .parse-status.ok { display: block; background: rgba(0,200,100,0.15); color: #4caf50; }
+  .parse-status.err { display: block; background: rgba(255,50,50,0.15); color: #f44336; }
+
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .tabs {
+    display: flex;
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    gap: 2px;
+  }
+  .tab {
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 0.8em;
+    color: var(--text2);
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { flex: 1; display: none; position: relative; overflow: hidden; }
+  .tab-content.active { display: block; }
+  #tabCross.active { display: flex; flex-direction: column; }
+  #plot3d, #heatmap, #crossSection { width: 100%; height: 100%; }
+
+  .algo-note {
+    font-size: 0.68em;
+    background: rgba(83,52,131,0.2);
+    border-left: 2px solid var(--accent2);
+    padding: 6px 8px;
+    border-radius: 4px;
+    color: #aaa;
+    line-height: 1.45;
+    margin-top: 4px;
+  }
+
+  @media (max-width: 900px) {
+    body { flex-direction: column; }
+    .sidebar { width: 100%; min-width: unset; max-height: 48vh; }
+  }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h1>Klipper Bed Mesh <span>插值算法模拟器 · 复刻源码</span></h1>
+
+  <!-- 算法选择 -->
+  <div class="section">
+    <h3>🔧 插值算法</h3>
+    <div class="section-content">
+      <div class="algo-group">
+        <button class="algo-btn active" data-algo="bicubic" onclick="selectAlgo('bicubic')">
+          <span class="algo-name">双三次插值 (bicubic)</span><br>
+          <span class="algo-desc">Cardinal 样条，Klipper 默认算法，tension 控制曲率</span>
+        </button>
+        <button class="algo-btn" data-algo="bilinear" onclick="selectAlgo('bilinear')">
+          <span class="algo-name">双线性插值 (bilinear)</span><br>
+          <span class="algo-desc">简单线性插值，无过冲，适合平缓床面</span>
+        </button>
+        <button class="algo-btn" data-algo="lagrange" onclick="selectAlgo('lagrange')">
+          <span class="algo-name">拉格朗日插值 (lagrange)</span><br>
+          <span class="algo-desc">4点拉格朗日多项式，可能产生较大震荡</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 数据输入 -->
+  <div class="section">
+    <h3 onclick="this.parentElement.classList.toggle('collapsed')">📋 mesh_map_output 输入 <span class="arrow">▼</span></h3>
+    <div class="section-content">
+      <textarea id="meshInput" spellcheck="false">{"mesh_min": [5.0, 5.0], "mesh_max": [320.0, 344.93], "z_positions": [[-0.223472, -0.163194, -0.145694, -0.088194, -0.026806, 0.031389, 0.078333, 0.125278, 0.178333, 0.254861], [-0.209444, -0.141944, -0.124167, -0.056389, -0.025972, 0.035278, 0.074167, 0.130694, 0.168194, 0.215972], [-0.186944, -0.123889, -0.119028, -0.062083, -0.009861, 0.030694, 0.053194, 0.109722, 0.164444, 0.203333], [-0.189028, -0.118472, -0.076389, -0.050139, -0.019444, 0.031806, 0.084861, 0.098194, 0.1325, 0.169444], [-0.147917, -0.092917, -0.086111, -0.043056, -0.014583, 0.039722, 0.081806, 0.09875, 0.140278, 0.148333], [-0.137222, -0.052778, -0.039861, -0.027083, 0.022778, 0.049583, 0.059028, 0.085417, 0.110278, 0.144167], [-0.055417, -0.011389, -0.010833, 0.029444, 0.049722, 0.092222, 0.070833, 0.091944, 0.112222, 0.144722], [0.0275, 0.082083, 0.066944, 0.084722, 0.093333, 0.138472, 0.135139, 0.135, 0.163611, 0.194306], [0.155833, 0.183194, 0.161667, 0.171667, 0.188472, 0.193194, 0.177639, 0.200417, 0.238611, 0.22625], [0.33625, 0.310694, 0.279722, 0.272222, 0.269722, 0.268333, 0.279028, 0.300833, 0.327083, 0.335556]]}</textarea>
+      <div class="input-hint">粘贴 Klipper 终端输出中的 <code>mesh_map_output</code> 数据（可带或不带前缀）</div>
+      <div class="parse-status" id="parseStatus"></div>
+      <div class="btn-row">
+        <button class="btn btn-sm" onclick="parseAndUpdate()">✅ 解析并应用</button>
+        <button class="btn btn-sm btn-outline" onclick="loadExample(1)">📌 示例1 (10×10)</button>
+        <button class="btn btn-sm btn-outline" onclick="loadExample(2)">📌 示例2 (5×5)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 网格信息 -->
+  <div class="section">
+    <h3 onclick="this.parentElement.classList.toggle('collapsed')">📐 网格信息 <span class="arrow">▼</span></h3>
+    <div class="section-content">
+      <div class="param-row"><label>探测点数</label><span class="val" id="gridSize">-</span></div>
+      <div class="param-row"><label>床面尺寸</label><span class="val" id="bedSize">-</span></div>
+      <div class="param-row"><label>X 间距</label><span class="val" id="xSpacing">-</span></div>
+      <div class="param-row"><label>Y 间距</label><span class="val" id="ySpacing">-</span></div>
+    </div>
+  </div>
+
+  <!-- 插值参数 -->
+  <div class="section" id="paramSection">
+    <h3>⚙️ 插值参数 ([bed_mesh] 配置)</h3>
+    <div class="section-content">
+      <div class="param-row">
+        <label>mesh_pps X</label>
+        <input type="range" id="ppsX" min="1" max="8" value="3" step="1">
+        <span class="val" id="ppsXVal">3</span>
+      </div>
+      <div class="param-row">
+        <label>mesh_pps Y</label>
+        <input type="range" id="ppsY" min="1" max="8" value="3" step="1">
+        <span class="val" id="ppsYVal">3</span>
+      </div>
+      <div class="param-row" id="tensionRow">
+        <label>bicubic_tension</label>
+        <input type="range" id="tension" min="0" max="2" value="0.2" step="0.05">
+        <span class="val" id="tensionVal">0.20</span>
+      </div>
+      <div class="param-row" id="boundaryRow">
+        <label>边界策略</label>
+        <select id="boundary" style="flex:1;background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font-size:0.82em;">
+          <option value="repeat">端点重复 (p₀=p₁, p₂=p₃)</option>
+          <option value="mirror">镜像端点 (p₀=2p₁-p₂)</option>
+        </select>
+      </div>
+      <div class="algo-note" id="algoNote">
+        ⚙️ <b>Cardinal 样条</b> · 切线 = tension × (p₂-p₀)<br>
+        先 X 方向逐行插值 → 再 Y 方向逐列插值<br>
+        边界：左 p₀=p₁，右 p₂=p₃（端点重复）
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-sm" onclick="updateAll()">🔄 更新</button>
+        <button class="btn btn-sm btn-secondary" onclick="resetDefaults()">↺ 默认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 统计 -->
+  <div class="section">
+    <h3>📊 统计信息</h3>
+    <div class="stats-grid">
+      <div class="stat-item"><div class="label">范围</div><div class="value" id="statRange">-</div><div class="unit">mm</div></div>
+      <div class="stat-item"><div class="label">方差</div><div class="value" id="statVar">-</div><div class="unit">mm²</div></div>
+      <div class="stat-item"><div class="label">平面度</div><div class="value" id="statFlatness">-</div><div class="unit">mm</div></div>
+      <div class="stat-item"><div class="label">Min</div><div class="value" id="statMin">-</div><div class="unit">mm</div></div>
+      <div class="stat-item"><div class="label">Max</div><div class="value" id="statMax">-</div><div class="unit">mm</div></div>
+      <div class="stat-item"><div class="label">插值点数</div><div class="value" id="statPoints">-</div><div class="unit">pts</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 主内容 -->
+<div class="main">
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('3d')">🌐 3D 曲面</div>
+    <div class="tab" onclick="switchTab('heatmap')">🔥 热力图</div>
+    <div class="tab" onclick="switchTab('cross')">📈 截面图</div>
+    <div class="tab" onclick="switchTab('error')">⚠️ 误差分析</div>
+  </div>
+  <div class="tab-content active" id="tab3d"><div id="plot3d"></div></div>
+  <div class="tab-content" id="tabHeatmap"><div id="heatmap"></div></div>
+  <div class="tab-content" id="tabCross">
+    <div class="cross-controls">
+      <button class="cross-type-btn active" id="crossTypeY" onclick="setCrossType('y')">沿 Y= 截面</button>
+      <button class="cross-type-btn" id="crossTypeX" onclick="setCrossType('x')">沿 X= 截面</button>
+      <label>位置 (mm):</label>
+      <input type="number" id="crossPos" step="any" onchange="onCrossPosChange()" onkeydown="if(event.key==='Enter')onCrossPosChange()">
+      <span class="cross-hint" id="crossHint"></span>
+    </div>
+    <div id="crossSection" style="flex:1;"></div>
+  </div>
+  <div class="tab-content" id="tabError">
+    <div style="display:flex;height:100%;">
+      <div style="flex:1;position:relative;"><div id="errorHeatmap" style="width:100%;height:100%;"></div></div>
+      <div style="width:380px;min-width:380px;overflow-y:auto;padding:12px;background:var(--panel-bg);border-left:1px solid var(--border);display:flex;flex-direction:column;gap:10px;">
+        <div class="stats-grid" id="errorStatsGrid">
+          <div class="stat-item"><div class="label">最大正误差</div><div class="value err-positive" id="errMaxPos">-</div><div class="unit">mm</div></div>
+          <div class="stat-item"><div class="label">最大负误差</div><div class="value err-negative" id="errMaxNeg">-</div><div class="unit">mm</div></div>
+          <div class="stat-item"><div class="label">RMS 误差</div><div class="value" id="errRMS">-</div><div class="unit">mm</div></div>
+          <div class="stat-item"><div class="label">平均绝对误差</div><div class="value" id="errMAE">-</div><div class="unit">mm</div></div>
+          <div class="stat-item"><div class="label">误差范围</div><div class="value" id="errRange">-</div><div class="unit">mm</div></div>
+          <div class="stat-item"><div class="label">原始点数</div><div class="value" id="errCount">-</div><div class="unit">pts</div></div>
+        </div>
+        <div class="algo-note" id="errNote" style="font-size:0.7em;">
+          误差 = 插值网格在原始探测点位置的值 − 原始探测值<br>
+          正值(红色)表示插值偏高，负值(绿色)表示插值偏低
+        </div>
+        <div style="font-size:0.68em;color:var(--text2);margin-top:4px;">误差矩阵（行=Y, 列=X）：</div>
+        <div class="err-table-wrap">
+          <table class="err-table" id="errTable"></table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== 全局状态 ====================
+let meshData = null;
+let currentResult = null;
+let currentRawResult = null;  // 保存原始插值结果 {matrix, mesh_x_count, mesh_y_count}
+let currentAlgo = 'bicubic';
+let currentBoundary = 'repeat';
+
+const boundaryNote = {
+  repeat: '边界：左 p₀=p₁，右 p₂=p₃（端点重复 → 切线=0）',
+  mirror: '边界：左 p₀=2p₁-p₂，右 p₃=2p₂-p₁（镜像端点 → 延续斜率）'
+};
+
+function buildAlgoNote() {
+  const bNote = currentAlgo === 'bicubic' ? boundaryNote[currentBoundary] : '';
+  const base = {
+    bicubic: `⚙️ <b>Cardinal 样条</b> · 切线 = tension × (p₂-p₀)<br>先 X 方向逐行插值 → 再 Y 方向逐列插值<br>${bNote}`,
+    bilinear: '⚙️ <b>双线性插值</b> · 简单的二维线性加权平均<br>z = (1-tx)(1-ty)·p00 + tx(1-ty)·p10 + (1-x)ty·p01 + tx·ty·p11<br>不会过冲，边界自然',
+    lagrange: '⚙️ <b>拉格朗日多项式插值</b> · 使用 4 个邻近点构建三次多项式<br>L(t)=Σ yᵢ·Π_{j≠i}(t-tⱼ)/(tᵢ-tⱼ)<br>可能产生龙格现象/过冲'
+  };
+  return base[currentAlgo];
+}
+
+const algoNames = {
+  bicubic: '双三次插值 (Cardinal 样条)',
+  bilinear: '双线性插值',
+  lagrange: '拉格朗日插值'
+};
+
+// ==================== 算法切换 ====================
+function selectAlgo(algo) {
+  currentAlgo = algo;
+  document.querySelectorAll('.algo-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector(`[data-algo="${algo}"]`).classList.add('active');
+
+  // tension 和 boundary 仅对 bicubic 有效
+  const isBicubic = algo === 'bicubic';
+  document.getElementById('tensionRow').style.display = isBicubic ? '' : 'none';
+  document.getElementById('boundaryRow').style.display = isBicubic ? '' : 'none';
+
+  document.getElementById('algoNote').innerHTML = buildAlgoNote();
+  updateAll();
+}
+
+// ==================== JSON 解析 ====================
+function parseMeshJSON(jsonStr) {
+  let cleaned = jsonStr.trim();
+  // 去掉可能的 "mesh_map_output " 前缀
+  if (/^mesh_map_output\s+/i.test(cleaned)) {
+    cleaned = cleaned.replace(/^mesh_map_output\s+/, '');
+  }
+  try {
+    const data = JSON.parse(cleaned);
+    if (!data.mesh_min || !data.mesh_max || !data.z_positions) {
+      return { error: '缺少必需字段: mesh_min, mesh_max, z_positions' };
+    }
+    if (!Array.isArray(data.z_positions) || data.z_positions.length === 0) {
+      return { error: 'z_positions 必须是非空二维数组' };
+    }
+    const N = data.z_positions.length;
+    for (let i = 0; i < N; i++) {
+      if (!Array.isArray(data.z_positions[i]) || data.z_positions[i].length !== N) {
+        return { error: `z_positions 必须是 ${N}×${N} 方阵，第 ${i} 行长度不匹配` };
+      }
+    }
+    return {
+      N,
+      z_matrix: data.z_positions,
+      x_min: data.mesh_min[0],
+      x_max: data.mesh_max[0],
+      y_min: data.mesh_min[1],
+      y_max: data.mesh_max[1]
+    };
+  } catch (e) {
+    return { error: 'JSON 解析错误: ' + e.message };
+  }
+}
+
+const defaultJson = `{"mesh_min": [5.0, 5.0], "mesh_max": [320.0, 344.93], "z_positions": [[-0.223472, -0.163194, -0.145694, -0.088194, -0.026806, 0.031389, 0.078333, 0.125278, 0.178333, 0.254861], [-0.209444, -0.141944, -0.124167, -0.056389, -0.025972, 0.035278, 0.074167, 0.130694, 0.168194, 0.215972], [-0.186944, -0.123889, -0.119028, -0.062083, -0.009861, 0.030694, 0.053194, 0.109722, 0.164444, 0.203333], [-0.189028, -0.118472, -0.076389, -0.050139, -0.019444, 0.031806, 0.084861, 0.098194, 0.1325, 0.169444], [-0.147917, -0.092917, -0.086111, -0.043056, -0.014583, 0.039722, 0.081806, 0.09875, 0.140278, 0.148333], [-0.137222, -0.052778, -0.039861, -0.027083, 0.022778, 0.049583, 0.059028, 0.085417, 0.110278, 0.144167], [-0.055417, -0.011389, -0.010833, 0.029444, 0.049722, 0.092222, 0.070833, 0.091944, 0.112222, 0.144722], [0.0275, 0.082083, 0.066944, 0.084722, 0.093333, 0.138472, 0.135139, 0.135, 0.163611, 0.194306], [0.155833, 0.183194, 0.161667, 0.171667, 0.188472, 0.193194, 0.177639, 0.200417, 0.238611, 0.22625], [0.33625, 0.310694, 0.279722, 0.272222, 0.269722, 0.268333, 0.279028, 0.300833, 0.327083, 0.335556]]}`;
+
+function parseAndUpdate() {
+  const jsonStr = document.getElementById('meshInput').value.trim();
+  const statusEl = document.getElementById('parseStatus');
+  const result = parseMeshJSON(jsonStr);
+
+  if (result.error) {
+    statusEl.textContent = result.error;
+    statusEl.className = 'parse-status err';
+    meshData = null;
+    return;
+  }
+
+  statusEl.textContent = '✅ 解析成功: ' + result.N + '×' + result.N
+    + ' | 床面 ' + (result.x_max - result.x_min).toFixed(1)
+    + '×' + (result.y_max - result.y_min).toFixed(1) + ' mm';
+  statusEl.className = 'parse-status ok';
+  meshData = result;
+
+  document.getElementById('gridSize').textContent = result.N + '×' + result.N;
+  document.getElementById('bedSize').textContent =
+    (result.x_max - result.x_min).toFixed(1) + ' × ' + (result.y_max - result.y_min).toFixed(1) + ' mm';
+  document.getElementById('xSpacing').textContent =
+    ((result.x_max - result.x_min) / (result.N - 1)).toFixed(2) + ' mm';
+  document.getElementById('ySpacing').textContent =
+    ((result.y_max - result.y_min) / (result.N - 1)).toFixed(2) + ' mm';
+
+  updateAll();
+}
+
+function loadExample(n) {
+  if (n === 1) {
+    document.getElementById('meshInput').value = defaultJson;
+  } else if (n === 2) {
+    const ex2 = {
+      mesh_min: [0, 0],
+      mesh_max: [200, 200],
+      z_positions: [
+        [0.0, 0.1, 0.15, 0.1, 0.0],
+        [0.1, 0.3, 0.4, 0.3, 0.1],
+        [0.15, 0.4, 0.55, 0.4, 0.15],
+        [0.1, 0.3, 0.4, 0.3, 0.1],
+        [0.0, 0.1, 0.15, 0.1, 0.0]
+      ]
+    };
+    document.getElementById('meshInput').value = JSON.stringify(ex2);
+  }
+  parseAndUpdate();
+}
+
+// ====================================================================
+// 算法 1: Klipper 官方 Bicubic — Cardinal Spline
+// 源自 bed_mesh.py ZMesh._cardinal_spline()
+// ====================================================================
+function cardinalSpline(p0, p1, p2, p3, t, tension) {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const m1 = tension * (p2 - p0);
+  const m2 = tension * (p3 - p1);
+  return p1*(2*t3 - 3*t2 + 1) + p2*(-2*t3 + 3*t2) + m1*(t3 - 2*t2 + t) + m2*(t3 - t2);
+}
+
+function getXCtlPts(row, x, x_mult, count, boundary) {
+  const last_pt = count - 1 - x_mult;
+  let p0, p1, p2, p3, tt;
+  if (x < x_mult) {
+    // 左边界
+    p1 = row[0];
+    p2 = row[Math.min(x_mult, count - 1)];
+    p3 = row[Math.min(2 * x_mult, count - 1)];
+    if (boundary === 'mirror') {
+      p0 = 2 * p1 - p2;  // 镜像端点: p0 = 2*P1 - P2
+    } else {
+      p0 = p1;  // 端点重复
+    }
+    tt = x / x_mult;
+  } else if (x > last_pt) {
+    // 右边界
+    p0 = row[Math.max(0, last_pt - x_mult)];
+    p1 = row[last_pt];
+    p2 = row[count - 1];
+    if (boundary === 'mirror') {
+      p3 = 2 * p2 - p1;  // 镜像端点: p3 = 2*P2 - P1
+    } else {
+      p3 = p2;  // 端点重复
+    }
+    tt = (x - last_pt) / x_mult;
+  } else {
+    const i = Math.floor(x / x_mult) * x_mult;
+    p0 = row[Math.max(0, i - x_mult)];
+    p1 = row[i];
+    p2 = row[Math.min(count - 1, i + x_mult)];
+    p3 = row[Math.min(count - 1, i + 2 * x_mult)];
+    tt = (x - i) / x_mult;
+  }
+  return { p0, p1, p2, p3, t: tt };
+}
+
+function getYCtlPts(col, y, y_mult, count, boundary) {
+  const last_pt = count - 1 - y_mult;
+  let p0, p1, p2, p3, tt;
+  if (y < y_mult) {
+    // 下边界
+    p1 = col[0];
+    p2 = col[Math.min(y_mult, count - 1)];
+    p3 = col[Math.min(2 * y_mult, count - 1)];
+    if (boundary === 'mirror') {
+      p0 = 2 * p1 - p2;
+    } else {
+      p0 = p1;
+    }
+    tt = y / y_mult;
+  } else if (y > last_pt) {
+    // 上边界
+    p0 = col[Math.max(0, last_pt - y_mult)];
+    p1 = col[last_pt];
+    p2 = col[count - 1];
+    if (boundary === 'mirror') {
+      p3 = 2 * p2 - p1;
+    } else {
+      p3 = p2;
+    }
+    tt = (y - last_pt) / y_mult;
+  } else {
+    const j = Math.floor(y / y_mult) * y_mult;
+    p0 = col[Math.max(0, j - y_mult)];
+    p1 = col[j];
+    p2 = col[Math.min(count - 1, j + y_mult)];
+    p3 = col[Math.min(count - 1, j + 2 * y_mult)];
+    tt = (y - j) / y_mult;
+  }
+  return { p0, p1, p2, p3, t: tt };
+}
+
+function sampleBicubic(z_matrix, probeN, ppsX, ppsY, tension, boundary) {
+  const x_mult = ppsX + 1;
+  const y_mult = ppsY + 1;
+  const mesh_x_count = (probeN - 1) * x_mult + 1;
+  const mesh_y_count = (probeN - 1) * y_mult + 1;
+
+  // 初始化矩阵：仅探测点有值
+  const mm = [];
+  for (let j = 0; j < mesh_y_count; j++) {
+    const row = [];
+    for (let i = 0; i < mesh_x_count; i++) {
+      if ((i % x_mult === 0) && (j % y_mult === 0)) {
+        row.push(z_matrix[j / y_mult][i / x_mult]);
+      } else {
+        row.push(0);
+      }
+    }
+    mm.push(row);
+  }
+
+  // Step 1: X 方向逐行 cardinal spline（仅探测点行）
+  for (let j = 0; j < mesh_y_count; j++) {
+    if (j % y_mult !== 0) continue;
+    for (let x = 0; x < mesh_x_count; x++) {
+      if (x % x_mult === 0) continue;
+      const c = getXCtlPts(mm[j], x, x_mult, mesh_x_count, boundary);
+      mm[j][x] = cardinalSpline(c.p0, c.p1, c.p2, c.p3, c.t, tension);
+    }
+  }
+
+  // Step 2: Y 方向逐列 cardinal spline（所有非探测点行）
+  for (let x = 0; x < mesh_x_count; x++) {
+    // 构建当前列
+    const col = [];
+    for (let j = 0; j < mesh_y_count; j++) col.push(mm[j][x]);
+    for (let y = 0; y < mesh_y_count; y++) {
+      if (y % y_mult === 0) continue;
+      const c = getYCtlPts(col, y, y_mult, mesh_y_count, boundary);
+      mm[y][x] = cardinalSpline(c.p0, c.p1, c.p2, c.p3, c.t, tension);
+    }
+  }
+
+  return { matrix: mm, mesh_x_count, mesh_y_count };
+}
+
+// ====================================================================
+// 算法 2: 双线性插值 (Bilinear)
+// 对应 Klipper bed_mesh.py algorithm: bilinear
+// ====================================================================
+function sampleBilinear(z_matrix, probeN, ppsX, ppsY) {
+  const x_mult = ppsX + 1;
+  const y_mult = ppsY + 1;
+  const mesh_x_count = (probeN - 1) * x_mult + 1;
+  const mesh_y_count = (probeN - 1) * y_mult + 1;
+
+  const mm = [];
+  for (let j = 0; j < mesh_y_count; j++) {
+    const row = [];
+    const yf = j / (mesh_y_count - 1);
+    const y_idx_f = yf * (probeN - 1);
+    const y0 = Math.min(Math.floor(y_idx_f), probeN - 2);
+    const ty = y_idx_f - y0;
+
+    for (let i = 0; i < mesh_x_count; i++) {
+      const xf = i / (mesh_x_count - 1);
+      const x_idx_f = xf * (probeN - 1);
+      const x0 = Math.min(Math.floor(x_idx_f), probeN - 2);
+      const tx = x_idx_f - x0;
+
+      // 双线性插值
+      const z00 = z_matrix[y0][x0];
+      const z10 = z_matrix[y0][x0 + 1];
+      const z01 = z_matrix[y0 + 1][x0];
+      const z11 = z_matrix[y0 + 1][x0 + 1];
+
+      const z = (1 - tx) * (1 - ty) * z00 +
+                tx * (1 - ty) * z10 +
+                (1 - tx) * ty * z01 +
+                tx * ty * z11;
+      row.push(z);
+    }
+    mm.push(row);
+  }
+  return { matrix: mm, mesh_x_count, mesh_y_count };
+}
+
+// ====================================================================
+// 算法 3: 拉格朗日插值 (Lagrange)
+// 对应 Klipper bed_mesh.py algorithm: lagrange
+// 使用 4 点拉格朗日多项式
+// ====================================================================
+function lagrangeInterp1D(y0, y1, y2, y3, t) {
+  // t in [0,1]，使用 4 个等距节点 t=-1,0,1,2 映射到 t∈[0,1]
+  // L_0(t) = (t-0)(t-1)(t-2)/((−1−0)(−1−1)(−1−2)) = −t(t−1)(t−2)/6
+  // L_1(t) = (t+1)(t-1)(t-2)/((0+1)(0−1)(0−2))   =  (t+1)(t−1)(t−2)/2
+  // L_2(t) = (t+1)(t-0)(t-2)/((1+1)(1−0)(1−2))   = −(t+1)t(t−2)/2
+  // L_3(t) = (t+1)(t-0)(t-1)/((2+1)(2−0)(2−1))   =  (t+1)t(t−1)/6
+  const l0 = -t * (t - 1) * (t - 2) / 6;
+  const l1 = (t + 1) * (t - 1) * (t - 2) / 2;
+  const l2 = -(t + 1) * t * (t - 2) / 2;
+  const l3 = (t + 1) * t * (t - 1) / 6;
+  return l0 * y0 + l1 * y1 + l2 * y2 + l3 * y3;
+}
+
+function getLagrange4Points(arr, idx_f, count) {
+  // 找 idx_f 附近的 4 个点索引
+  let base = Math.round(idx_f) - 1;
+  base = Math.max(0, Math.min(base, count - 4));
+  // 确保 idx_f 在中间两个点之间
+  if (base > 0 && idx_f - base > 2) base++;
+  if (base < count - 4 && base + 2 < idx_f) base++;
+  return [
+    arr[base],
+    arr[Math.min(base + 1, count - 1)],
+    arr[Math.min(base + 2, count - 1)],
+    arr[Math.min(base + 3, count - 1)]
+  ];
+}
+
+function sampleLagrange(z_matrix, probeN, ppsX, ppsY) {
+  const x_mult = ppsX + 1;
+  const y_mult = ppsY + 1;
+  const mesh_x_count = (probeN - 1) * x_mult + 1;
+  const mesh_y_count = (probeN - 1) * y_mult + 1;
+
+  const mm = [];
+  for (let j = 0; j < mesh_y_count; j++) {
+    const row = [];
+    const yf = j / (mesh_y_count - 1);
+    const y_idx_f = yf * (probeN - 1);
+
+    for (let i = 0; i < mesh_x_count; i++) {
+      const xf = i / (mesh_x_count - 1);
+      const x_idx_f = xf * (probeN - 1);
+
+      // 分离式拉格朗日：先沿 X 方向对每条 Y 行做 1D 拉格朗日
+      // 取 4 条 Y 行的 X 插值结果，再做 Y 方向 1D 拉格朗日
+      const y_pts = [];
+      for (let yi = -1; yi <= 2; yi++) {
+        const y_row = Math.min(Math.max(Math.round(y_idx_f) + yi, 0), probeN - 1);
+        const pts = getLagrange4Points(z_matrix[y_row], x_idx_f, probeN);
+        const tx = x_idx_f - Math.round(x_idx_f) + 1; // 归一化到 [0,1] 范围附近
+        y_pts.push(lagrangeInterp1D(pts[0], pts[1], pts[2], pts[3], tx));
+      }
+      const ty = y_idx_f - Math.round(y_idx_f) + 1;
+      row.push(lagrangeInterp1D(y_pts[0], y_pts[1], y_pts[2], y_pts[3], ty));
+    }
+    mm.push(row);
+  }
+  return { matrix: mm, mesh_x_count, mesh_y_count };
+}
+
+// ==================== 构建可视化坐标矩阵 ====================
+function buildCoordinateMesh(mesh_matrix, mesh_x_count, mesh_y_count) {
+  const d = meshData;
+  const x_coords = [], y_coords = [], z_vals = [];
+
+  for (let j = 0; j < mesh_y_count; j++) {
+    const realY = d.y_min + (d.y_max - d.y_min) * (j / (mesh_y_count - 1));
+    const rowX = [], rowY = [], rowZ = [];
+    for (let i = 0; i < mesh_x_count; i++) {
+      const realX = d.x_min + (d.x_max - d.x_min) * (i / (mesh_x_count - 1));
+      rowX.push(realX);
+      rowY.push(realY);
+      rowZ.push(mesh_matrix[j][i]);
+    }
+    x_coords.push(rowX);
+    y_coords.push(rowY);
+    z_vals.push(rowZ);
+  }
+  return { x_coords, y_coords, z_vals };
+}
+
+// ==================== 统计 ====================
+function computeStats(mesh_matrix) {
+  const flat = mesh_matrix.flat();
+  const min = Math.min(...flat);
+  const max = Math.max(...flat);
+  const range = max - min;
+  const mean = flat.reduce((a, b) => a + b, 0) / flat.length;
+  const variance = flat.reduce((s, v) => s + (v - mean) ** 2, 0) / flat.length;
+  return { min, max, range, variance, mean, totalPoints: flat.length };
+}
+
+// ==================== Plotly 3D 曲面 ====================
+function plot3D(x_coords, y_coords, z_vals) {
+  const d = meshData;
+  const traceInterp = {
+    type: 'surface',
+    x: x_coords[0],
+    y: y_coords.map(r => r[0]),
+    z: z_vals,
+    colorscale: 'RdBu_r',
+    name: algoNames[currentAlgo],
+    contours: {
+      z: { show: true, usecolormap: true, highlightcolor: 'rgba(255,255,255,0.25)', project: { z: true } }
+    },
+    colorbar: { title: 'Z (mm)', titleside: 'right' },
+    lighting: { ambient: 0.6, diffuse: 0.8, specular: 0.3, roughness: 0.5 },
+    lightposition: { x: 100, y: 100, z: 200 }
+  };
+
+  // 原始探测点
+  const ox = [], oy = [], oz = [];
+  for (let i = 0; i < d.N; i++) {
+    for (let j = 0; j < d.N; j++) {
+      ox.push(d.x_min + (d.x_max - d.x_min) * j / (d.N - 1));
+      oy.push(d.y_min + (d.y_max - d.y_min) * i / (d.N - 1));
+      oz.push(d.z_matrix[i][j]);
+    }
+  }
+  const traceOrig = {
+    type: 'scatter3d',
+    mode: 'markers',
+    x: ox, y: oy, z: oz,
+    marker: { size: 7, color: '#00ff88', symbol: 'circle', line: { color: '#000', width: 1 } },
+    name: '探测点 (' + d.N + '×' + d.N + ')'
+  };
+
+  const layout = {
+    title: { text: 'Bed Mesh — ' + algoNames[currentAlgo], font: { size: 16, color: '#eee' } },
+    scene: {
+      xaxis: { title: 'X (mm)', color: '#aaa', gridcolor: '#333' },
+      yaxis: { title: 'Y (mm)', color: '#aaa', gridcolor: '#333' },
+      zaxis: { title: 'Z (mm)', color: '#aaa', gridcolor: '#333' },
+      bgcolor: '#1a1a2e',
+      camera: { eye: { x: 1.5, y: -1.5, z: 1.2 } },
+      aspectratio: { x: 1, y: 1, z: 0.6 }
+    },
+    paper_bgcolor: '#1a1a2e',
+    plot_bgcolor: '#1a1a2e',
+    font: { color: '#aaa' },
+    margin: { l: 0, r: 0, t: 50, b: 0 },
+    legend: { x: 0.01, y: 0.99, font: { color: '#aaa' }, bgcolor: 'rgba(0,0,0,0.4)' }
+  };
+
+  Plotly.newPlot('plot3d', [traceInterp, traceOrig], layout, {
+    responsive: true, displayModeBar: true,
+    modeBarButtonsToRemove: ['sendDataToCloud'], displaylogo: false
+  });
+}
+
+// ==================== Plotly 热力图 ====================
+function plotHeatmap(x_coords, y_coords, z_vals) {
+  const trace = {
+    type: 'heatmap',
+    x: x_coords[0],
+    y: y_coords.map(r => r[0]),
+    z: z_vals,
+    colorscale: 'RdBu_r',
+    colorbar: { title: 'Z (mm)', titleside: 'right' },
+    zsmooth: false
+  };
+  const layout = {
+    title: { text: 'Bed Mesh 热力图 — ' + algoNames[currentAlgo], font: { size: 16, color: '#eee' } },
+    xaxis: { title: 'X (mm)', color: '#aaa', gridcolor: '#333', constrain: 'domain' },
+    yaxis: { title: 'Y (mm)', color: '#aaa', gridcolor: '#333', constrain: 'domain', scaleanchor: 'x', scaleratio: 1 },
+    paper_bgcolor: '#1a1a2e', plot_bgcolor: '#1a1a2e',
+    font: { color: '#aaa' }, margin: { l: 60, r: 30, t: 50, b: 50 }
+  };
+  Plotly.newPlot('heatmap', [trace], layout, {
+    responsive: true, displayModeBar: true,
+    modeBarButtonsToRemove: ['sendDataToCloud'], displaylogo: false
+  });
+}
+
+// ==================== 截面图 - 交互式 ====================
+let crossSectionType = 'y'; // 'y'=沿Y截面(横轴X), 'x'=沿X截面(横轴Y)
+let crossSectionPos = null; // 当前选中位置
+
+function setCrossType(type) {
+  crossSectionType = type;
+  document.getElementById('crossTypeY').classList.toggle('active', type === 'y');
+  document.getElementById('crossTypeX').classList.toggle('active', type === 'x');
+  if (meshData) {
+    const d = meshData;
+    crossSectionPos = (type === 'y') ? (d.y_min + d.y_max) / 2 : (d.x_min + d.x_max) / 2;
+    document.getElementById('crossPos').value = crossSectionPos.toFixed(2);
+    document.getElementById('crossHint').textContent = `范围: ${(type==='y'?d.y_min:d.x_min).toFixed(1)} ~ ${(type==='y'?d.y_max:d.x_max).toFixed(1)} mm`;
+  }
+  updateCrossSection();
+}
+
+function onCrossPosChange() {
+  const val = parseFloat(document.getElementById('crossPos').value);
+  if (!isNaN(val) && meshData) {
+    const d = meshData;
+    const minVal = crossSectionType === 'y' ? d.y_min : d.x_min;
+    const maxVal = crossSectionType === 'y' ? d.y_max : d.x_max;
+    crossSectionPos = Math.max(minVal, Math.min(maxVal, val));
+  }
+  updateCrossSection();
+}
+
+function initCrossControls() {
+  if (!meshData) return;
+  const d = meshData;
+  if (crossSectionPos === null) {
+    crossSectionPos = (d.y_min + d.y_max) / 2;
+  }
+  document.getElementById('crossPos').value = crossSectionPos.toFixed(2);
+  document.getElementById('crossHint').textContent = `范围: ${(crossSectionType==='y'?d.y_min:d.x_min).toFixed(1)} ~ ${(crossSectionType==='y'?d.y_max:d.x_max).toFixed(1)} mm`;
+  document.getElementById('crossTypeY').classList.toggle('active', crossSectionType === 'y');
+  document.getElementById('crossTypeX').classList.toggle('active', crossSectionType === 'x');
+}
+
+function updateCrossSection() {
+  if (!currentResult || !meshData) return;
+  initCrossControls();
+  plotCrossSectionInteractive(currentResult, meshData);
+}
+
+function plotCrossSectionInteractive(result, meshData) {
+  const d = meshData;
+  const x_coords = result.x_coords;
+  const y_coords = result.y_coords;
+  const z_vals = result.z_vals;
+  const matrix = currentRawResult.matrix;
+  const mesh_x_count = currentRawResult.mesh_x_count;
+  const mesh_y_count = currentRawResult.mesh_y_count;
+
+  const probesX = Array.from({length:d.N}, (_,i) => d.x_min + (d.x_max-d.x_min)*i/(d.N-1));
+  const probesY = Array.from({length:d.N}, (_,i) => d.y_min + (d.y_max-d.y_min)*i/(d.N-1));
+
+  let traces = [];
+  let xAxisTitle, selLabel;
+
+  if (crossSectionType === 'y') {
+    // 沿 Y=const 截面，横轴是 X
+    xAxisTitle = 'X (mm)';
+    const yPos = crossSectionPos;
+
+    // 在插值网格中找到最近的 Y 行索引
+    const yFrac = (yPos - d.y_min) / (d.y_max - d.y_min);
+    const yIdxF = yFrac * (mesh_y_count - 1);
+    const y0 = Math.max(0, Math.min(mesh_y_count - 2, Math.floor(yIdxF)));
+    const ty = yIdxF - y0;
+
+    // 对该 Y 截面的每一列做 Y 方向线性插值（从 mesh 矩阵中取）
+    const interpCurveX = [];
+    const interpCurveZ = [];
+    for (let xi = 0; xi < mesh_x_count; xi++) {
+      const realX = d.x_min + (d.x_max - d.x_min) * xi / (mesh_x_count - 1);
+      const z0 = matrix[y0][xi];
+      const z1 = matrix[Math.min(y0 + 1, mesh_y_count - 1)][xi];
+      const z = (1 - ty) * z0 + ty * z1;
+      interpCurveX.push(realX);
+      interpCurveZ.push(z);
+    }
+
+    traces.push({
+      type:'scatter', mode:'lines',
+      x: interpCurveX, y: interpCurveZ,
+      name: `插值 Y=${yPos.toFixed(2)}`,
+      line:{color:'#e94560',width:2.5}
+    });
+
+    // 该截面位置附近的原始探测点（Y 方向）
+    const yProbeFrac = (yPos - d.y_min) / (d.y_max - d.y_min);
+    const yProbeIdxF = yProbeFrac * (d.N - 1);
+    const pj0 = Math.max(0, Math.min(d.N - 2, Math.floor(yProbeIdxF)));
+    const pty = yProbeIdxF - pj0;
+
+    // 取上下两个探测行，做 Y 方向线性插值得到该截面的探测值
+    const probeCurveX = [];
+    const probeCurveZ = [];
+    for (let pi = 0; pi < d.N; pi++) {
+      const rx = d.x_min + (d.x_max - d.x_min) * pi / (d.N - 1);
+      const pz = (1 - pty) * d.z_matrix[pj0][pi] + pty * d.z_matrix[Math.min(pj0 + 1, d.N - 1)][pi];
+      probeCurveX.push(rx);
+      probeCurveZ.push(pz);
+    }
+
+    traces.push({
+      type:'scatter', mode:'markers',
+      x: probeCurveX, y: probeCurveZ,
+      name: `探测截面 Y≈${yPos.toFixed(2)}`,
+      marker:{color:'#00ff88',size:12,line:{color:'#000',width:1}}
+    });
+
+    // 标记最近的两个原始探测行
+    traces.push({
+      type:'scatter', mode:'markers',
+      x: probesX, y: d.z_matrix[pj0],
+      name: `探测行 Y=${probesY[pj0].toFixed(2)}`,
+      marker:{color:'#4488ff',size:7,symbol:'triangle-up',line:{color:'#000',width:1}},
+      visible:'legendonly'
+    });
+    if (pj0 + 1 < d.N) {
+      traces.push({
+        type:'scatter', mode:'markers',
+        x: probesX, y: d.z_matrix[pj0 + 1],
+        name: `探测行 Y=${probesY[pj0 + 1].toFixed(2)}`,
+        marker:{color:'#ff8844',size:7,symbol:'triangle-down',line:{color:'#000',width:1}},
+        visible:'legendonly'
+      });
+    }
+
+    selLabel = `Y = ${yPos.toFixed(2)} mm`;
+  } else {
+    // 沿 X=const 截面，横轴是 Y
+    xAxisTitle = 'Y (mm)';
+    const xPos = crossSectionPos;
+
+    const xFrac = (xPos - d.x_min) / (d.x_max - d.x_min);
+    const xIdxF = xFrac * (mesh_x_count - 1);
+    const x0 = Math.max(0, Math.min(mesh_x_count - 2, Math.floor(xIdxF)));
+    const tx = xIdxF - x0;
+
+    const interpCurveY = [];
+    const interpCurveZ = [];
+    for (let yi = 0; yi < mesh_y_count; yi++) {
+      const realY = d.y_min + (d.y_max - d.y_min) * yi / (mesh_y_count - 1);
+      const z0 = matrix[yi][x0];
+      const z1 = matrix[yi][Math.min(x0 + 1, mesh_x_count - 1)];
+      const z = (1 - tx) * z0 + tx * z1;
+      interpCurveY.push(realY);
+      interpCurveZ.push(z);
+    }
+
+    traces.push({
+      type:'scatter', mode:'lines',
+      x: interpCurveY, y: interpCurveZ,
+      name: `插值 X=${xPos.toFixed(2)}`,
+      line:{color:'#533483',width:2.5,dash:'dash'}
+    });
+
+    // 该截面位置附近的原始探测点（X 方向）
+    const xProbeFrac = (xPos - d.x_min) / (d.x_max - d.x_min);
+    const xProbeIdxF = xProbeFrac * (d.N - 1);
+    const pi0 = Math.max(0, Math.min(d.N - 2, Math.floor(xProbeIdxF)));
+    const ptx = xProbeIdxF - pi0;
+
+    const probeCurveY = [];
+    const probeCurveZ = [];
+    for (let pj = 0; pj < d.N; pj++) {
+      const ry = d.y_min + (d.y_max - d.y_min) * pj / (d.N - 1);
+      const pz = (1 - ptx) * d.z_matrix[pj][pi0] + ptx * d.z_matrix[pj][Math.min(pi0 + 1, d.N - 1)];
+      probeCurveY.push(ry);
+      probeCurveZ.push(pz);
+    }
+
+    traces.push({
+      type:'scatter', mode:'markers',
+      x: probeCurveY, y: probeCurveZ,
+      name: `探测截面 X≈${xPos.toFixed(2)}`,
+      marker:{color:'#ffaa00',size:12,symbol:'diamond',line:{color:'#000',width:1}}
+    });
+
+    // 标记最近的两个原始探测列
+    traces.push({
+      type:'scatter', mode:'markers',
+      x: probesY, y: d.z_matrix.map(r=>r[pi0]),
+      name: `探测列 X=${probesX[pi0].toFixed(2)}`,
+      marker:{color:'#8844ff',size:7,symbol:'triangle-left',line:{color:'#000',width:1}},
+      visible:'legendonly'
+    });
+    if (pi0 + 1 < d.N) {
+      traces.push({
+        type:'scatter', mode:'markers',
+        x: probesY, y: d.z_matrix.map(r=>r[pi0 + 1]),
+        name: `探测列 X=${probesX[pi0 + 1].toFixed(2)}`,
+        marker:{color:'#44ff88',size:7,symbol:'triangle-right',line:{color:'#000',width:1}},
+        visible:'legendonly'
+      });
+    }
+
+    selLabel = `X = ${xPos.toFixed(2)} mm`;
+  }
+
+  const layout = {
+    title:{text:`截面图 — ${algoNames[currentAlgo]} · ${selLabel}`,font:{size:16,color:'#eee'}},
+    xaxis:{title:xAxisTitle,color:'#aaa',gridcolor:'#333',zeroline:false},
+    yaxis:{title:'Z 高度 (mm)',color:'#aaa',gridcolor:'#333',zeroline:true,zerolinecolor:'#555'},
+    paper_bgcolor:'#1a1a2e',plot_bgcolor:'#1a1a2e',font:{color:'#aaa'},
+    legend:{x:0.01,y:0.99,font:{color:'#aaa'},bgcolor:'rgba(0,0,0,0.4)'},
+    margin:{l:60,r:30,t:50,b:50}
+  };
+  Plotly.newPlot('crossSection', traces, layout, {
+    responsive:true,displayModeBar:true,
+    modeBarButtonsToRemove:['sendDataToCloud'],displaylogo:false
+  });
+}
+
+// ==================== 误差分析 ====================
+function computeErrorMatrix(result, meshData) {
+  // 计算插值网格在原始探测点位置的值，并与原始探测值作差
+  const d = meshData;
+  const N = d.N;
+  const matrix = result.matrix;
+  const mesh_x_count = result.mesh_x_count;
+  const mesh_y_count = result.mesh_y_count;
+  const x_mult = (mesh_x_count - 1) / (N - 1);
+  const y_mult = (mesh_y_count - 1) / (N - 1);
+
+  const errMatrix = [];
+  const x_coords_err = [];
+  const y_coords_err = [];
+
+  for (let j = 0; j < N; j++) {
+    const row = [];
+    const rowX = [];
+    const rowY = [];
+    const yi = Math.round(j * y_mult); // 插值网格中对应的 Y 索引
+    const realY = d.y_min + (d.y_max - d.y_min) * j / (N - 1);
+    for (let i = 0; i < N; i++) {
+      const xi = Math.round(i * x_mult); // 插值网格中对应的 X 索引
+      const realX = d.x_min + (d.x_max - d.x_min) * i / (N - 1);
+      const interpVal = matrix[yi][xi];
+      const origVal = d.z_matrix[j][i];
+      const err = interpVal - origVal;
+      row.push(err);
+      rowX.push(realX);
+      rowY.push(realY);
+    }
+    errMatrix.push(row);
+    x_coords_err.push(rowX);
+    y_coords_err.push(rowY);
+  }
+
+  return { errMatrix, x_coords_err, y_coords_err };
+}
+
+function computeErrorStats(errMatrix) {
+  const flat = errMatrix.flat();
+  const maxPos = Math.max(0, ...flat);
+  const maxNeg = Math.min(0, ...flat);
+  const range = maxPos - maxNeg;
+  const mae = flat.reduce((s, v) => s + Math.abs(v), 0) / flat.length;
+  const rms = Math.sqrt(flat.reduce((s, v) => s + v * v, 0) / flat.length);
+  return { maxPos, maxNeg, range, mae, rms, totalPoints: flat.length };
+}
+
+function plotErrorHeatmap(errMatrix, x_coords, y_coords, meshData) {
+  const d = meshData;
+  // 探测点标记
+  const ox = [], oy = [];
+  for (let j = 0; j < d.N; j++) {
+    for (let i = 0; i < d.N; i++) {
+      ox.push(d.x_min + (d.x_max - d.x_min) * i / (d.N - 1));
+      oy.push(d.y_min + (d.y_max - d.y_min) * j / (d.N - 1));
+    }
+  }
+
+  const traceHeat = {
+    type: 'heatmap',
+    x: x_coords[0],
+    y: y_coords.map(r => r[0]),
+    z: errMatrix,
+    colorscale: [
+      [0, '#4caf50'],
+      [0.5, '#111'],
+      [1, '#f44336']
+    ],
+    zmid: 0,
+    colorbar: { title: '误差 (mm)', titleside: 'right' },
+    zsmooth: false
+  };
+
+  const tracePoints = {
+    type: 'scatter',
+    mode: 'markers+text',
+    x: ox,
+    y: oy,
+    text: errMatrix.flat().map(v => v.toFixed(4)),
+    textposition: 'top center',
+    textfont: { size: 8, color: '#ccc' },
+    marker: { size: 12, color: 'rgba(255,255,255,0.15)', symbol: 'circle', line: { color: '#fff', width: 1 } },
+    name: '探测点误差'
+  };
+
+  const layout = {
+    title: { text: '误差分析热力图 — ' + algoNames[currentAlgo] + ' (插值 − 原始)', font: { size: 16, color: '#eee' } },
+    xaxis: { title: 'X (mm)', color: '#aaa', gridcolor: '#333', constrain: 'domain' },
+    yaxis: { title: 'Y (mm)', color: '#aaa', gridcolor: '#333', constrain: 'domain', scaleanchor: 'x', scaleratio: 1 },
+    paper_bgcolor: '#1a1a2e', plot_bgcolor: '#1a1a2e',
+    font: { color: '#aaa' }, margin: { l: 60, r: 30, t: 50, b: 50 },
+    legend: { x: 0.01, y: 0.99, font: { color: '#aaa' }, bgcolor: 'rgba(0,0,0,0.4)' }
+  };
+
+  Plotly.newPlot('errorHeatmap', [traceHeat, tracePoints], layout, {
+    responsive: true, displayModeBar: true,
+    modeBarButtonsToRemove: ['sendDataToCloud'], displaylogo: false
+  });
+}
+
+function updateErrorStats(stats) {
+  document.getElementById('errMaxPos').textContent = stats.maxPos > 0 ? '+' + stats.maxPos.toFixed(5) : '0.00000';
+  document.getElementById('errMaxNeg').textContent = stats.maxNeg < 0 ? stats.maxNeg.toFixed(5) : '0.00000';
+  document.getElementById('errRMS').textContent = stats.rms.toFixed(6);
+  document.getElementById('errMAE').textContent = stats.mae.toFixed(6);
+  document.getElementById('errRange').textContent = stats.range.toFixed(5);
+  document.getElementById('errCount').textContent = stats.totalPoints;
+}
+
+function buildErrorTable(errMatrix) {
+  const N = errMatrix.length;
+  let html = '<thead><tr><th>Y\\X</th>';
+  for (let i = 0; i < N; i++) html += `<th>${i}</th>`;
+  html += '</tr></thead><tbody>';
+  for (let j = N - 1; j >= 0; j--) {
+    html += '<tr>';
+    html += `<th>${j}</th>`;
+    for (let i = 0; i < N; i++) {
+      const v = errMatrix[j][i];
+      let cls = 'err-zero';
+      if (v > 0.0001) cls = 'err-positive';
+      else if (v < -0.0001) cls = 'err-negative';
+      html += `<td class="${cls}">${v.toFixed(4)}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody>';
+  document.getElementById('errTable').innerHTML = html;
+}
+
+function plotErrorAll(result, meshData) {
+  const { errMatrix, x_coords_err, y_coords_err } = computeErrorMatrix(result, meshData);
+  const stats = computeErrorStats(errMatrix);
+  updateErrorStats(stats);
+  buildErrorTable(errMatrix);
+  plotErrorHeatmap(errMatrix, x_coords_err, y_coords_err, meshData);
+}
+function updateStats(stats) {
+  document.getElementById('statRange').textContent = stats.range.toFixed(4);
+  document.getElementById('statVar').textContent = stats.variance.toFixed(6);
+  document.getElementById('statMin').textContent = stats.min.toFixed(4);
+  document.getElementById('statMax').textContent = stats.max.toFixed(4);
+  document.getElementById('statPoints').textContent = stats.totalPoints;
+  document.getElementById('statFlatness').textContent = stats.range.toFixed(4);
+}
+
+// ==================== 主更新入口 ====================
+function updateAll() {
+  if (!meshData) return;
+
+  const ppsX = parseInt(document.getElementById('ppsX').value);
+  const ppsY = parseInt(document.getElementById('ppsY').value);
+  const tension = parseFloat(document.getElementById('tension').value);
+  const boundary = document.getElementById('boundary').value;
+
+  document.getElementById('ppsXVal').textContent = ppsX;
+  document.getElementById('ppsYVal').textContent = ppsY;
+  document.getElementById('tensionVal').textContent = tension.toFixed(2);
+  currentBoundary = boundary;
+  document.getElementById('algoNote').innerHTML = buildAlgoNote();
+
+  let result;
+  if (currentAlgo === 'bicubic') {
+    result = sampleBicubic(meshData.z_matrix, meshData.N, ppsX, ppsY, tension, boundary);
+  } else if (currentAlgo === 'bilinear') {
+    result = sampleBilinear(meshData.z_matrix, meshData.N, ppsX, ppsY);
+  } else {
+    result = sampleLagrange(meshData.z_matrix, meshData.N, ppsX, ppsY);
+  }
+
+  const coords = buildCoordinateMesh(result.matrix, result.mesh_x_count, result.mesh_y_count);
+  currentResult = coords;
+  currentRawResult = result;
+
+  const stats = computeStats(result.matrix);
+  updateStats(stats);
+
+  const activeTab = document.querySelector('.tab-content.active');
+  if (activeTab.id === 'tab3d') plot3D(coords.x_coords, coords.y_coords, coords.z_vals);
+  else if (activeTab.id === 'tabHeatmap') plotHeatmap(coords.x_coords, coords.y_coords, coords.z_vals);
+  else if (activeTab.id === 'tabCross') updateCrossSection();
+  else if (activeTab.id === 'tabError') plotErrorAll(currentRawResult, meshData);
+}
+
+// ==================== Tab 切换 ====================
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  const tabMap = { '3d': 'tab3d', 'heatmap': 'tabHeatmap', 'cross': 'tabCross', 'error': 'tabError' };
+  const tabIdx = { '3d': 0, 'heatmap': 1, 'cross': 2, 'error': 3 };
+  document.querySelectorAll('.tab')[tabIdx[name]].classList.add('active');
+  document.getElementById(tabMap[name]).classList.add('active');
+  if (!currentResult) return;
+  if (name === '3d') plot3D(currentResult.x_coords, currentResult.y_coords, currentResult.z_vals);
+  else if (name === 'heatmap') plotHeatmap(currentResult.x_coords, currentResult.y_coords, currentResult.z_vals);
+  else if (name === 'cross') updateCrossSection();
+  else if (name === 'error') plotErrorAll(currentRawResult, meshData);
+}
+
+// ==================== 重置 ====================
+function resetDefaults() {
+  document.getElementById('ppsX').value = 3;
+  document.getElementById('ppsY').value = 3;
+  document.getElementById('tension').value = 0.2;
+  document.getElementById('ppsXVal').textContent = '3';
+  document.getElementById('ppsYVal').textContent = '3';
+  document.getElementById('tensionVal').textContent = '0.20';
+  updateAll();
+}
+
+// ==================== 事件监听 ====================
+['ppsX', 'ppsY', 'tension'].forEach(id => {
+  document.getElementById(id).addEventListener('input', updateAll);
+  document.getElementById(id).addEventListener('change', updateAll);
+});
+document.getElementById('boundary').addEventListener('change', updateAll);
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(updateAll, 200);
+});
+
+// ==================== 初始加载 ====================
+parseAndUpdate();
+</script>
+</body>
+</html>
